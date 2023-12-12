@@ -12,7 +12,7 @@ def populate_clrbook():
         acc.acctyplo & 16777216=16777216
     and acc.acctyphi & 512=512 -- Ar
     and clr.objtyp in (606,548) -- COBOL Paragraph or Section
-    and cle.objtyp=831 -- COBOL Data
+    and cle.objtyp in (831, 890, 114021, 142548) -- 'Cobol Data', 'Cobol Conditional Test', 'Cobol Literal', 'Cobol Index'
     and acc.idclr=clr.idkey
     and acc.idcle=cle.idkey    
     and accbook.idacc=acc.idacc
@@ -29,7 +29,7 @@ def populate_clebook():
         acc.acctyplo & 16777216=16777216
     and acc.acctyphi & 1024=1024 -- Aw
     and clr.objtyp in (606,548) -- COBOL Paragraph or Section
-    and cle.objtyp=831 -- COBOL Data
+    and cle.objtyp in (831, 890, 142548) -- 'Cobol Data', 'Cobol Conditional Test', 'Cobol Index'
     and acc.idclr=clr.idkey
     and acc.idcle=cle.idkey    
     and accbook.idacc=acc.idacc
@@ -43,13 +43,17 @@ def populate_bookmarks():
                     clrbook.prop as prop1, clrbook.blkno as blkno1,
                     clebook.prop as prop2, clebook.blkno as blkno2,
                     clrbook.acctyphi as acctyphi1, clebook.acctyphi as acctyphi2,
-                    keys.keynam as keynam1
+                    k1.keynam as keynam1,
+                    k2.keynam as keynam2,
+                    k1.objtyp as objtyp1,
+                    k2.objtyp as objtyp2
     into temporary table bookmarks
     from 
-        clrbook,clebook,keys
+        clrbook,clebook,keys k1,keys k2
     where
         clrbook.idclr=clebook.idclr
-    and clrbook.idcle=keys.idkey
+    and clrbook.idcle=k1.idkey
+    and clebook.idcle=k2.idkey
     and clrbook.info1=clebook.info1
     and clrbook.info2=clebook.info2
     and clrbook.info3=clebook.info3
@@ -58,47 +62,158 @@ def populate_bookmarks():
     order by 1
     """
 
+def index_bookmarks():
+    return "CREATE INDEX bmcode1_idx ON bookmarks (bmcode1)"
+
 def alter_bookmarks():
     return "alter table bookmarks add column bmcode1 text, add column bmcode2 text"
 
 def retrieve_src_bookmarks():
-    # Retrieve bookmark src for MOVE statements with ambiguous access type to Cobol Data  (rw,rw or rw,w)
+    # Retrieve bookmark src for statements
     return """
-    update bookmarks set bmcode1 = cust_linkmovedata_extension_code_extractbookmarktext(idacc1,info11,info21,info31,info41,prop1,blkno1),
-                         bmcode2 = cust_linkmovedata_extension_code_extractbookmarktext(idacc2,info12,info22,info32,info42,prop2,blkno2)
-                     where      (acctyphi1=1536 and acctyphi2=1536) or   -- rw,rw
-                                (acctyphi1=1536 and acctyphi2=1024)      -- rw,w
+    update bookmarks set bmcode1 = ltrim(cust_linkmovedata_extension_code_extractbookmarktext(idacc1,info11,info21,info31,info41,prop1,blkno1)),
+                         bmcode2 = ltrim(cust_linkmovedata_extension_code_extractbookmarktext(idacc2,info12,info22,info32,info42,prop2,blkno2))
     """
 
+def discard_nomatch0_bookmarks():
+    return """
+    delete from bookmarks where 
+                         bmcode1 is null or bmcode2 is null
+    """
+    
 def discard_nomatch1_bookmarks():
     return """
     delete from bookmarks where 
-                         bmcode1 is not null and bmcode2 is not null and
                          bmcode1 != bmcode2 -- Bookmark mismatch
     """
 
 def discard_nomatch2_bookmarks():
-    return """
+    return r"""
     delete from bookmarks where 
-                         bmcode1 is not null and bmcode2 is not null
-                 and not bmcode1 ~ '[Mm][Oo][Vv][Ee]\s' -- Not a MOVE
+                     not bmcode1 ~* '^ADD\s' 
+                 and not bmcode1 ~* '^SUBTRACT\s' 
+                 and not bmcode1 ~* '^MULTIPLY\s' 
+                 and not bmcode1 ~* '^DIVIDE\s' 
+                 and not bmcode1 ~* '^COMPUTE\s' 
+                 and not bmcode1 ~* '^SET\s' 
+                 and not bmcode1 ~* '^STRING\s'
+                 and not bmcode1 ~* '^UNSTRING\s'
+                 and not bmcode1 ~* '^MOVE\s' 
     """
 
 def discard_nomatch3_bookmarks():
-    return """
+    return r"""
     delete from bookmarks where 
-                         bmcode1 is not null and bmcode2 is not null                         
-                 and not bmcode1 ~ ('[Mm][Oo][Vv][Ee]\s'||replace(keynam1,'-','\-')||'[\s\(]') -- Does not match "MOVE keynam1 ..." => discard
-                 and not bmcode1 ~ ('[Mm][Oo][Vv][Ee]\s[Cc][Oo][Rr][Rr][Ee][Ss][Pp][Oo][Nn][Dd][Ii][Nn][Gg]\s'||replace(keynam1,'-','\-')||'[\s\(]')
-                 and not bmcode1 ~ ('[Mm][Oo][Vv][Ee]\s[Cc][Oo][Rr][Rr]\s'||replace(keynam1,'-','\-')||'[\s\(]')                         
-    """                     
+                         bmcode1 ~*  '^MOVE\s'
+                 and (
+                     not bmcode1 ~* ('TO\s+[A-Z0-9\-\,\:\(\)\s]*'||cust_regexp_quote(keynam2))    -- Does not match "MOVE ... TO keynam2 ..." => discard 
+                     or  bmcode1 ~* ('TO\s+[A-Z0-9\-\,\:\(\)\s]*'||cust_regexp_quote(keynam1)||'(\s|\,|\(|$)')    -- Matches "MOVE ... TO keynam1" => discard 
+                     )                        
+    """ 
+
+def discard_nomatch4_bookmarks():
+    return r"""
+    delete from bookmarks where  
+                       not bmcode1 ~* ('(^ADD|^ADD\s+CORR|^ADD\s+CORRESPONDING|^SUBTRACT|^SUBTRACT\s+CORR|^SUBTRACT\s+CORRESPONDING|^MULTIPLY|^DIVIDE|^COMPUTE|^SET|^MOVE|^MOVE\s+CORR|^MOVE\s+CORRESPONDING)\s+'||cust_regexp_quote(keynam1)||'[\s\,\=\(]')
+                  and  not bmcode1 ~* ('FUNCTION\s+[A-Z\-]+\s+\(\s*'||cust_regexp_quote(keynam1)||'\s*\)')
+                  and (
+                       bmcode1 ~* ('[A-Z0-9]+\s*\(\s*'||cust_regexp_quote(keynam1)||'\s*\)')       or           -- matches "AA-BB (COBOL-INDEX)" 
+                       bmcode1 ~* ('[A-Z0-9]+\s*\(\s*'||cust_regexp_quote(keynam1)||'[\s\,]')      or           -- matches "AA-BB (COBOL-INDEX ,... " 
+                       bmcode1 ~* ('[A-Z0-9]+\s*\([\sA-Z0-9\-\+\*\,]+'||cust_regexp_quote(keynam1)||'[\s\,\)]') -- matches "AA-BB ( ..., COBOL-INDEX)"  or "AA-BB ( ..., COBOL-INDEX , "
+                       )
+    """
+
+def discard_nomatch5_bookmarks():
+    return r"""
+    delete from bookmarks where 
+                       not bmcode1 ~* ('(^ADD|^ADD\s+CORR|^ADD\s+CORRESPONDING|^SUBTRACT|^SUBTRACT\s+CORR|^SUBTRACT\s+CORRESPONDING|^MULTIPLY|^DIVIDE|^COMPUTE|^SET|^MOVE|^MOVE\s+CORR|^MOVE\s+CORRESPONDING)\s+'||cust_regexp_quote(keynam2)||'[\s\,\=\(]')
+                  and  not bmcode1 ~* ('FUNCTION\s+[A-Z\-]+\s+\(\s*'||cust_regexp_quote(keynam2)||'\s*\)')
+                  and (
+                       bmcode1 ~* ('[A-Z0-9]+\s*\(\s*'||cust_regexp_quote(keynam2)||'\s*\)')       or           -- matches "AA-BB (COBOL-INDEX)" 
+                       bmcode1 ~* ('[A-Z0-9]+\s*\(\s*'||cust_regexp_quote(keynam2)||'[\s\,]')      or           -- matches "AA-BB (COBOL-INDEX ,... " 
+                       bmcode1 ~* ('[A-Z0-9]+\s*\([\sA-Z0-9\-\+\*\,]+'||cust_regexp_quote(keynam2)||'[\s\,\)]') -- matches "AA-BB ( ..., COBOL-INDEX)"  or "AA-BB ( ..., COBOL-INDEX , "
+                       )
+    """
+
+def discard_nomatch6_bookmarks():
+    return r"""
+    delete from bookmarks where                          
+                         bmcode1 ~*  '^STRING\s'
+                 and ( 
+                         not bmcode1 ~* ('INTO\s+'||cust_regexp_quote(keynam2)) -- Does not match "STRING ... INTO keynam2 ..." => discard
+                         or  bmcode1 ~* ('INTO\s+'||cust_regexp_quote(keynam1)||'[\s\(\,]') -- Matches "STRING ... INTO keynam1 ..." => discard
+                         or  bmcode1 ~* ('DELIMITED\s+BY\s+'||cust_regexp_quote(REGEXP_REPLACE(keynam1, '\"', '''', 'g'))||'[\s\(\,]') 
+                     )
+    """
+
+def discard_nomatch7_bookmarks():
+    return r"""
+    delete from bookmarks where 
+                             bmcode1 ~*  '^UNSTRING\s'
+                 and (
+                         not bmcode1 ~* ('UNSTRING\s+'||cust_regexp_quote(keynam1)||'[\s\(]+') -- Does not match "UNSTRING keynam1 ..." => discard
+                         or  bmcode1 ~* ('UNSTRING\s+'||cust_regexp_quote(keynam2)||'[\s\(]+') -- Matches "UNSTRING keynam2 ..." => discard
+                     )
+    """
+
+def discard_nomatch8_bookmarks():
+    return r"""
+    delete from bookmarks where                          
+                         bmcode1 ~*  '^COMPUTE\s' 
+                 and (
+                    not  bmcode1 ~* ('COMPUTE\s+'||cust_regexp_quote(keynam2)||'[\s\(\=]') -- Does not match "COMPUTE keynam2 ..." => discard
+                    or   bmcode1 ~* ('COMPUTE\s+'||cust_regexp_quote(keynam1)||'[\s\(\=]') -- Matches "COMPUTE keynam1 ..." => discard
+                     )
+    """
+
+def discard_nomatch9_bookmarks():
+    return r"""
+    delete from bookmarks where                                                   
+                           bmcode1 ~*  '^SET\s' 
+                 and (
+                        not bmcode1 ~* ('SET\s+'||cust_regexp_quote(keynam2)||'[\s\(]') -- Does not match "SET keynam2 ..." => discard
+                     or     bmcode1 ~* ('SET\s+'||cust_regexp_quote(keynam1)||'[\s\(]') -- Matches "SET keynam1 ..." => discard
+                     or     bmcode1 ~* ('TO\s+'||cust_regexp_quote(keynam2)||'[\s\(]') 
+                     )
+    """
+
+def discard_nomatch10_bookmarks():
+    return r"""
+    delete from bookmarks where 
+                 -- ADD, SUBTRACT, MULTIPLY, DIVIDE instructions:
+                         bmcode1 ~* '(^ADD|^SUBTRACT|^MULTIPLY|^DIVIDE)\s' 
+                 and not bmcode1 ~* 'GIVING\s'
+                 and (
+                     not bmcode1 ~* ('(FROM|TO|BY|INTO)\s'||'[A-Z0-9\-\+\,\(\)\s]*'||cust_regexp_quote(keynam2)||'(\s|\,|\(|$)')
+                  or     bmcode1 ~* ('(FROM|TO|BY|INTO)\s'||'[A-Z0-9\-\+\,\(\)\s]*'||cust_regexp_quote(keynam1)||'(\s|\,|\(|$)')
+                     )
+    """ 
+
+def discard_nomatch11_bookmarks():
+    return r"""
+    delete from bookmarks where 
+                 -- ADD, SUBTRACT, MULTIPLY, DIVIDE instructions with GIVING:
+                            bmcode1 ~* '(^ADD|^SUBTRACT|^MULTIPLY|^DIVIDE)\s' 
+                 and     (                 
+                            bmcode1 ~* ('\s+(GIVING)\s+'||cust_regexp_quote(keynam1)||'(\s|\(|$)' )
+                     or     bmcode1 ~* ('\s+(REMAINDER)\s+'||cust_regexp_quote(keynam1)||'(\s|\(|$)' )
+                         )
+    """   
+
+def discard_nomatch12_bookmarks():
+    return r"""
+    delete from bookmarks where 
+                 -- ADD, SUBTRACT, MULTIPLY, DIVIDE instructions with GIVING:
+                       bmcode1 ~* '(^ADD|^SUBTRACT|^MULTIPLY|^DIVIDE)\s' 
+                 and   bmcode1 ~* ('[\s\,]+'||cust_regexp_quote(keynam2)||'[\s\(\,].*'||'GIVING\s')  -- No target left of GIVING
+    """       
 
 def get_sql_nblinks_created():    
     return "select count(distinct (idcle1, idcle2)) from bookmarks"
 
 def create_cust_linkmovedata_code_extractbookmarktext():
     # Function to retrieve bookmark src
-    return """
+    return r"""
     CREATE OR REPLACE FUNCTION cust_linkmovedata_extension_code_extractbookmarktext(
         i_idacc integer,
         i_info1 integer,
@@ -167,5 +282,33 @@ def create_cust_linkmovedata_code_extractbookmarktext():
         return CODE_extractBookmarkText(L_sourceId, L_source, L_mainStartRow, L_mainStartColumn, L_mainEndRow, L_mainEndColumn, L_startRow, L_startColumn, L_endRow, L_endColumn);
     
     end;
+    $BODY$;
+    """
+
+def create_cust_regexp_quote():
+    # Function to escape all regexp special characters in a string
+    return r"""    
+    CREATE OR REPLACE FUNCTION cust_regexp_quote(IN TEXT)
+        RETURNS TEXT
+        LANGUAGE plpgsql
+        STABLE
+    AS $BODY$
+        /*******************************************************************************
+        * Function Name: regexp_quote
+        * In-coming Param:
+        *   The string to decoded and convert into a set of text arrays.
+        * Returns:
+        *   This function produces a TEXT that can be used as a regular expression
+        *   pattern that would match the input as if it were a literal pattern.
+        * Description:
+        *   Takes in a TEXT in and escapes all of the necessary characters so that
+        *   the output can be used as a regular expression to match the input as if
+        *   it were a literal pattern.
+        * Source: https://cwestblog.com/2012/07/10/postgresql-escape-regular-expressions/ * 
+        *     The original one doesn't work anymore. ???
+        ******************************************************************************/
+    BEGIN
+        RETURN REGEXP_REPLACE($1, '([\-\.\+\*\?\^\$\(\)\[\]\{\}\|\\])', '\\\1', 'g');
+    END;
     $BODY$;
     """
