@@ -7,6 +7,7 @@ import cast_upgrade_1_6_13 # @UnusedImport
 import logging
 import SqlQueries as sqlq
 from cast.application import ApplicationLevelExtension
+import cms_commandline
 
 class ApplicationLevelExtension(ApplicationLevelExtension):
     '''
@@ -17,7 +18,13 @@ class ApplicationLevelExtension(ApplicationLevelExtension):
         logging.info('##################################################################')
         kb=application.get_knowledge_base()
 
-        logging.info('Populating temp tables...')
+        logging.info('Update source code in KB...')
+        mb = application.get_managment_base()   
+        mb_engine = mb.engine
+        connection_profile = cms_commandline.ensure_cms_connection(application, cms_commandline.connection_profile_path, mb_engine, mb.name)
+        cms_commandline.load_sources(application.name,connection_profile) 
+
+        logging.info('Populating work tables...')
         kb.execute_query(sqlq.drop_temp_tables())
         logging.info('(1/3)')
         kb.execute_query(sqlq.populate_clrbook())
@@ -32,10 +39,10 @@ class ApplicationLevelExtension(ApplicationLevelExtension):
         kb.execute_query(sqlq.create_cust_linkmovedata_code_extractbookmarktext())
         kb.execute_query(sqlq.create_cust_regexp_quote())
 
-        logging.info('Retrieving bookmarks code...')
+        logging.info('Retrieving bookmarks...')
         kb.execute_query(sqlq.retrieve_src_bookmarks())
 
-        logging.info('Discarding unmatching bookmarks...')
+        logging.info('Processing bookmarks...')
         logging.info('(0/12)')
         kb.execute_query(sqlq.discard_nomatch0_bookmarks())
         logging.info('(1/12)')
@@ -76,6 +83,6 @@ class ApplicationLevelExtension(ApplicationLevelExtension):
         logging.info('*********************************')
         logging.info('Number of links created: '+str(nblinks))
         logging.info('*********************************')
-        logging.info('Cleanup...')
+        logging.info('Removing work tables...')
         kb.execute_query(sqlq.drop_temp_tables())
         logging.info('##################################################################')
