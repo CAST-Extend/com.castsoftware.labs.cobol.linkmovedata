@@ -1,8 +1,3 @@
-'''
-Created on Sep 11, 2023
-
-@author: GAIC
-'''
 import cast_upgrade_1_6_13 # @UnusedImport
 import logging
 import SqlQueries as sqlq
@@ -17,11 +12,14 @@ class ApplicationLevelExtension(ApplicationLevelExtension):
     def end_application(self, application):
         logging.info('##################################################################')
         kb=application.get_knowledge_base()
+        mb=application.get_managment_base()   
+        mb_engine=mb.engine
+        connection_profile=cms_commandline.ensure_cms_connection(application, cms_commandline.connection_profile_path, mb_engine, mb.name)
 
         logging.info('Update source code in KB...')
-        mb = application.get_managment_base()   
-        mb_engine = mb.engine
-        connection_profile = cms_commandline.ensure_cms_connection(application, cms_commandline.connection_profile_path, mb_engine, mb.name)
+        logging.info('(1/2) Purging CODE_SourceRowOffsets...')
+        kb.execute_query(sqlq.resetsourcerowoffsets())
+        logging.info('(2/2) Loading sources...')
         cms_commandline.load_sources(application.name,connection_profile) 
 
         logging.info('Populating work tables...')
@@ -75,7 +73,7 @@ class ApplicationLevelExtension(ApplicationLevelExtension):
         application.update_cast_knowledge_base("Create links between Cobol Data items", """        
         insert into CI_LINKS (CALLER_ID, CALLED_ID, LINK_TYPE, ERROR_ID)        
             select distinct idcle1, idcle2, 'accessWriteLink', 0
-            from bookmarks
+            from cust_bookmarks
         """)
         nblinks_rs=kb.execute_query(sqlq.get_sql_nblinks_created())
         for row in nblinks_rs:
