@@ -1,8 +1,10 @@
 def drop_temp_tables():
-    return "drop table if exists clrbook, clebook, bookmarks"
+    return "drop table if exists cust_clrbook, cust_clebook, cust_bookmarks"
+def resetsourcerowoffsets():
+    return "select code_resetsourcerowoffsets()"
 def populate_clrbook():
     return """
-    select acc.idclr, acc.idcle, acc.acctyplo, acc.acctyphi, accbook.* into temporary table clrbook
+    select acc.idclr, acc.idcle, acc.acctyplo, acc.acctyphi, accbook.* into temporary table cust_clrbook
     from 
     acc,
     keys clr,
@@ -19,7 +21,7 @@ def populate_clrbook():
     """
 def populate_clebook():
     return """
-    select acc.idclr, acc.idcle, acc.acctyplo, acc.acctyphi, accbook.* into temporary table clebook
+    select acc.idclr, acc.idcle, acc.acctyplo, acc.acctyphi, accbook.* into temporary table cust_clebook
     from 
     acc,
     keys clr,
@@ -36,60 +38,60 @@ def populate_clebook():
     """
 def populate_bookmarks():
     return """
-    select distinct clrbook.idclr,
-                    clrbook.idacc as idacc1, clebook.idacc as idacc2, clrbook.idcle as idcle1, clebook.idcle as idcle2, 
-                    clrbook.info1 as info11, clrbook.info2 as info21, clrbook.info3 as info31, clrbook.info4 as info41,
-                    clebook.info1 as info12, clebook.info2 as info22, clebook.info3 as info32, clebook.info4 as info42,
-                    clrbook.prop as prop1, clrbook.blkno as blkno1,
-                    clebook.prop as prop2, clebook.blkno as blkno2,
-                    clrbook.acctyphi as acctyphi1, clebook.acctyphi as acctyphi2,
+    select distinct cust_clrbook.idclr,
+                    cust_clrbook.idacc as idacc1, cust_clebook.idacc as idacc2, cust_clrbook.idcle as idcle1, cust_clebook.idcle as idcle2, 
+                    cust_clrbook.info1 as info11, cust_clrbook.info2 as info21, cust_clrbook.info3 as info31, cust_clrbook.info4 as info41,
+                    cust_clebook.info1 as info12, cust_clebook.info2 as info22, cust_clebook.info3 as info32, cust_clebook.info4 as info42,
+                    cust_clrbook.prop as prop1, cust_clrbook.blkno as blkno1,
+                    cust_clebook.prop as prop2, cust_clebook.blkno as blkno2,
+                    cust_clrbook.acctyphi as acctyphi1, cust_clebook.acctyphi as acctyphi2,
                     k1.keynam as keynam1,
                     k2.keynam as keynam2,
                     k1.objtyp as objtyp1,
                     k2.objtyp as objtyp2
-    into temporary table bookmarks
+    into temporary table cust_bookmarks
     from 
-        clrbook,clebook,keys k1,keys k2
+        cust_clrbook,cust_clebook,keys k1,keys k2
     where
-        clrbook.idclr=clebook.idclr
-    and clrbook.idcle=k1.idkey
-    and clebook.idcle=k2.idkey
-    and clrbook.info1=clebook.info1
-    and clrbook.info2=clebook.info2
-    and clrbook.info3=clebook.info3
-    and clrbook.info4=clebook.info4
-    and clrbook.idcle!=clebook.idcle
+        cust_clrbook.idclr=cust_clebook.idclr
+    and cust_clrbook.idcle=k1.idkey
+    and cust_clebook.idcle=k2.idkey
+    and cust_clrbook.info1=cust_clebook.info1
+    and cust_clrbook.info2=cust_clebook.info2
+    and cust_clrbook.info3=cust_clebook.info3
+    and cust_clrbook.info4=cust_clebook.info4
+    and cust_clrbook.idcle!=cust_clebook.idcle
     order by 1
     """
 
 def index_bookmarks():
-    return "CREATE INDEX bmcode1_idx ON bookmarks (bmcode1)"
+    return "CREATE INDEX cust_bookmarks_bmcode1_idx ON cust_bookmarks (bmcode1)"
 
 def alter_bookmarks():
-    return "alter table bookmarks add column bmcode1 text, add column bmcode2 text"
+    return "alter table cust_bookmarks add column bmcode1 text, add column bmcode2 text"
 
 def retrieve_src_bookmarks():
     # Retrieve bookmark src for statements
     return """
-    update bookmarks set bmcode1 = ltrim(cust_linkmovedata_extension_code_extractbookmarktext(idacc1,info11,info21,info31,info41,prop1,blkno1)),
+    update cust_bookmarks set bmcode1 = ltrim(cust_linkmovedata_extension_code_extractbookmarktext(idacc1,info11,info21,info31,info41,prop1,blkno1)),
                          bmcode2 = ltrim(cust_linkmovedata_extension_code_extractbookmarktext(idacc2,info12,info22,info32,info42,prop2,blkno2))
     """
 
 def discard_nomatch0_bookmarks():
     return """
-    delete from bookmarks where 
+    delete from cust_bookmarks where 
                          bmcode1 is null or bmcode2 is null
     """
     
 def discard_nomatch1_bookmarks():
     return """
-    delete from bookmarks where 
+    delete from cust_bookmarks where 
                          bmcode1 != bmcode2 -- Bookmark mismatch
     """
 
 def discard_nomatch2_bookmarks():
     return r"""
-    delete from bookmarks where 
+    delete from cust_bookmarks where 
                      not bmcode1 ~* '^ADD\s' 
                  and not bmcode1 ~* '^SUBTRACT\s' 
                  and not bmcode1 ~* '^MULTIPLY\s' 
@@ -103,7 +105,7 @@ def discard_nomatch2_bookmarks():
 
 def discard_nomatch3_bookmarks():
     return r"""
-    delete from bookmarks where 
+    delete from cust_bookmarks where 
                          bmcode1 ~*  '^MOVE\s'
                  and (
                      not bmcode1 ~* ('TO\s+[A-Z0-9\-\,\:\(\)\s]*'||cust_regexp_quote(keynam2))    -- Does not match "MOVE ... TO keynam2 ..." => discard 
@@ -113,7 +115,7 @@ def discard_nomatch3_bookmarks():
 
 def discard_nomatch4_bookmarks():
     return r"""
-    delete from bookmarks where  
+    delete from cust_bookmarks where  
                        not bmcode1 ~* ('(^ADD|^ADD\s+CORR|^ADD\s+CORRESPONDING|^SUBTRACT|^SUBTRACT\s+CORR|^SUBTRACT\s+CORRESPONDING|^MULTIPLY|^DIVIDE|^COMPUTE|^SET|^MOVE|^MOVE\s+CORR|^MOVE\s+CORRESPONDING)\s+'||cust_regexp_quote(keynam1)||'[\s\,\=\(]')
                   and  not bmcode1 ~* ('FUNCTION\s+[A-Z\-]+\s+\(\s*'||cust_regexp_quote(keynam1)||'\s*\)')
                   and (
@@ -125,7 +127,7 @@ def discard_nomatch4_bookmarks():
 
 def discard_nomatch5_bookmarks():
     return r"""
-    delete from bookmarks where 
+    delete from cust_bookmarks where 
                        not bmcode1 ~* ('(^ADD|^ADD\s+CORR|^ADD\s+CORRESPONDING|^SUBTRACT|^SUBTRACT\s+CORR|^SUBTRACT\s+CORRESPONDING|^MULTIPLY|^DIVIDE|^COMPUTE|^SET|^MOVE|^MOVE\s+CORR|^MOVE\s+CORRESPONDING)\s+'||cust_regexp_quote(keynam2)||'[\s\,\=\(]')
                   and  not bmcode1 ~* ('FUNCTION\s+[A-Z\-]+\s+\(\s*'||cust_regexp_quote(keynam2)||'\s*\)')
                   and (
@@ -137,7 +139,7 @@ def discard_nomatch5_bookmarks():
 
 def discard_nomatch6_bookmarks():
     return r"""
-    delete from bookmarks where                          
+    delete from cust_bookmarks where                          
                          bmcode1 ~*  '^STRING\s'
                  and ( 
                          not bmcode1 ~* ('INTO\s+'||cust_regexp_quote(keynam2)) -- Does not match "STRING ... INTO keynam2 ..." => discard
@@ -148,7 +150,7 @@ def discard_nomatch6_bookmarks():
 
 def discard_nomatch7_bookmarks():
     return r"""
-    delete from bookmarks where 
+    delete from cust_bookmarks where 
                              bmcode1 ~*  '^UNSTRING\s'
                  and (
                          not bmcode1 ~* ('UNSTRING\s+'||cust_regexp_quote(keynam1)||'[\s\(]+') -- Does not match "UNSTRING keynam1 ..." => discard
@@ -158,7 +160,7 @@ def discard_nomatch7_bookmarks():
 
 def discard_nomatch8_bookmarks():
     return r"""
-    delete from bookmarks where                          
+    delete from cust_bookmarks where                          
                          bmcode1 ~*  '^COMPUTE\s' 
                  and (
                     not  bmcode1 ~* ('COMPUTE\s+'||cust_regexp_quote(keynam2)||'[\s\(\=]') -- Does not match "COMPUTE keynam2 ..." => discard
@@ -168,7 +170,7 @@ def discard_nomatch8_bookmarks():
 
 def discard_nomatch9_bookmarks():
     return r"""
-    delete from bookmarks where                                                   
+    delete from cust_bookmarks where                                                   
                            bmcode1 ~*  '^SET\s' 
                  and (
                         not bmcode1 ~* ('SET\s+'||cust_regexp_quote(keynam2)||'[\s\(]') -- Does not match "SET keynam2 ..." => discard
@@ -179,7 +181,7 @@ def discard_nomatch9_bookmarks():
 
 def discard_nomatch10_bookmarks():
     return r"""
-    delete from bookmarks where 
+    delete from cust_bookmarks where 
                  -- ADD, SUBTRACT, MULTIPLY, DIVIDE instructions:
                          bmcode1 ~* '(^ADD|^SUBTRACT|^MULTIPLY|^DIVIDE)\s' 
                  and not bmcode1 ~* 'GIVING\s'
@@ -191,7 +193,7 @@ def discard_nomatch10_bookmarks():
 
 def discard_nomatch11_bookmarks():
     return r"""
-    delete from bookmarks where 
+    delete from cust_bookmarks where 
                  -- ADD, SUBTRACT, MULTIPLY, DIVIDE instructions with GIVING:
                             bmcode1 ~* '(^ADD|^SUBTRACT|^MULTIPLY|^DIVIDE)\s' 
                  and     (                 
@@ -202,14 +204,14 @@ def discard_nomatch11_bookmarks():
 
 def discard_nomatch12_bookmarks():
     return r"""
-    delete from bookmarks where 
+    delete from cust_bookmarks where 
                  -- ADD, SUBTRACT, MULTIPLY, DIVIDE instructions with GIVING:
                        bmcode1 ~* '(^ADD|^SUBTRACT|^MULTIPLY|^DIVIDE)\s' 
                  and   bmcode1 ~* ('[\s\,]+'||cust_regexp_quote(keynam2)||'[\s\(\,].*'||'GIVING\s')  -- No target left of GIVING
     """       
 
 def get_sql_nblinks_created():    
-    return "select count(distinct (idcle1, idcle2)) from bookmarks"
+    return "select count(distinct (idcle1, idcle2)) from cust_bookmarks"
 
 def create_cust_linkmovedata_code_extractbookmarktext():
     # Function to retrieve bookmark src
@@ -311,4 +313,4 @@ def create_cust_regexp_quote():
         RETURN REGEXP_REPLACE($1, '([\-\.\+\*\?\^\$\(\)\[\]\{\}\|\\])', '\\\1', 'g');
     END;
     $BODY$;
-    """
+    """    
