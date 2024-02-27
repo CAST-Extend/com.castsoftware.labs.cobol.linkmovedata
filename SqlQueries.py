@@ -207,7 +207,11 @@ def discard_nomatch12_bookmarks():
     delete from cust_bookmarks where 
                  -- ADD, SUBTRACT, MULTIPLY, DIVIDE instructions with GIVING:
                        bmcode1 ~* '(^ADD|^SUBTRACT|^MULTIPLY|^DIVIDE)\s' 
-                 and   bmcode1 ~* ('[\s\,]+'||cust_regexp_quote(keynam2)||'[\s\(\,].*'||'GIVING\s')  -- No target left of GIVING
+                 and   bmcode1 ~* ('[\s\,]+'||cust_regexp_quote(keynam2)||'[\s\(\,].*'||'GIVING\s')  -- Discard when target is left of GIVING...
+                 and   not  (                                                                        -- except if target is also right of GIVING/REMAINDER
+                            bmcode1 ~* ('\s+(GIVING)\s+'||cust_regexp_quote(keynam2)||'(\s|\(|$)' )
+                     or     bmcode1 ~* ('\s+(REMAINDER)\s+'||cust_regexp_quote(keynam2)||'(\s|\(|$)' )
+                         )
     """       
 
 def get_sql_nblinks_created():    
